@@ -1,25 +1,4 @@
-def ocr_prompt():
-   return """Extract all text and data from this image as structured JSON.
-
-    For tables: Create JSON array with column headers as field names
-    For other content: Use appropriate structure (headings, paragraphs, lists)
-
-    RULES:
-    - Preserve all text exactly as shown - for example if there is a noun as rank, do not convert it to its gerund form
-    - Preserve all numbers exactly as shown
-    - Use descriptive field names based on visible headers
-    - Convert empty cells to null
-    - No hallucination - only extract visible content
-    - Return valid JSON only
-
-    IMPORTANT: USE A SIMULAR SHCEMA TO THE ONE PROVIDED IN THE EXAMPLE
-
-    EXAMPLE:
-   {"medal_rankings":[{"gold":2,"total":3,"bronze":0,"nation":"Australia","sliver":1,"ranking":1},{"gold":1,"total":3,"bronze":1,"nation":"Italy","sliver":1,"ranking":2},{"gold":1,"total":2,"bronze":1,"nation":"Germany","sliver":0,"ranking":3},{"gold":1,"total":1,"bronze":0,"nation":"Soviet Union","sliver":0,"ranking":4},{"gold":0,"total":3,"bronze":1,"nation":"Switzerland","sliver":2,"ranking":5},{"gold":0,"total":1,"bronze":0,"nation":"United States","sliver":1,"ranking":6},{"gold":0,"total":1,"bronze":1,"nation":"Great Britain","sliver":0,"ranking":7},{"gold":0,"total":1,"bronze":1,"nation":"France","sliver":0,"ranking":7}]}
-
-    Extract the content"""
-
-def markdown_prompt():
+def markdown_prompt(): # deprecated
     return """You are an OCR engine. Extract all visible text and data from the image **as valid Markdown**.
 
 RULES:
@@ -40,14 +19,27 @@ EXAMPLE (table case):
 
 Extract the content now as Markdown."""
 
+def user_prompt():
+    return f"""Extract all content from the attached image and return it as **valid Markdown** following the system rules.
 
-def check_your_work_prompt():
-    return """You are an OCR engine. Check the content of the image and the extracted Markdown.
+- Preserve all tables, headings, bolding, and values **exactly** as they appear in the image.
+- Do **not** add or remove anything.
+- Do **not** convert tables into lists or HTML.
+- Do **not** fix formatting or numbers.
+"""
 
-RULES:
-- Check if the extracted Markdown is valid.
-- Check if the extracted Markdown is consistent with the image.
-- Check if the extracted Markdown is complete.
-- Check if the extracted Markdown is accurate.
-- Check if the extracted Markdown is complete.
+def system_prompt():
+    return """You are an OCR engine that converts images of documents to **strict Markdown**. Follow these rules exactly:
+
+1. Extract **all visible text**. Do **not** invent, reorder, or correct content.
+2. Tables must be output as **pipe-delimited Markdown tables** only:
+   - Preserve original column order and row order.
+   - Keep bolding (`**text**`) exactly as in the source.
+   - No HTML, no images, no flags, no extra formatting.
+3. Headings (`#`, `##`, etc.) must match exactly.
+4. Numbers, ranks, and values must **not change**.
+5. Use bullet points only if the source is clearly a list; otherwise, preserve as plain text.
+6. Wrap page numbers in `<page_number>…</page_number>` only if present.
+7. Do not wrap your output in code fences.
+8. Do not add extra Markdown syntax beyond what is visible in the image.
 """

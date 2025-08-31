@@ -7,3 +7,10 @@ python-dotenv==1.1.1
 
 # Simple evaluation dependencies
 datasets>=2.18.0
+
+# OCR evaluation dependencies
+editdistance>=1.0.11
+pandas>=1.5.0
+regex>=2023.0.0
+beautifulsoup4>=4.11.0
+openpyxl>=3.0.0
