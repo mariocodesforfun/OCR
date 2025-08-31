@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, UploadFile, File
@@ -16,5 +16,5 @@ def health():
     return {"status": "healthy"}
 
 @app.post("/v1/ocr-json")
-def ocr_json(file: UploadFile = File(...)):
-    return ocr_orchestrator.process_ocr_json(file)
+def ocr_json(file: UploadFile = File(...), schema: Optional[dict] = None):
+    return ocr_orchestrator.process_ocr_json(file, schema)

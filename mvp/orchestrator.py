@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import UploadFile
 from utils.pdf_processor import PDFProcessor
 from utils.ocr_client import OCRClient
@@ -10,7 +10,7 @@ class OCROrchestrator:
         self.pdf_processor = PDFProcessor()
         self.ocr_client = OCRClient()
 
-    def process_ocr_json(self, file: UploadFile) -> Dict[str, Any]:
+    def process_ocr_json(self, file: UploadFile, schema: Optional[dict] = None) -> Dict[str, Any]:
         """
         Process a PDF file and return OCR results in JSON format.
 
@@ -29,7 +29,7 @@ class OCROrchestrator:
             image_bytes = f.read()
 
         # Perform OCR
-        ocr_result = self.ocr_client.ocr_json(image_bytes)
+        ocr_result = self.ocr_client.ocr_json(image_bytes, schema)
 
         # Print the OCR result for debugging
         print(f"OCR Result: {json.dumps(ocr_result, indent=2)}")
