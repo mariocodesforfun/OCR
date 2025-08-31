@@ -40,7 +40,7 @@ class OCRClient:
         except Exception as e:
             raise Exception(f"OCR processing failed: {str(e)}")
 
-    def markdown(self, image_bytes: bytes) -> str:
+    def markdown_openai(self, image_bytes: bytes) -> str:
         try:
             encoded_image = base64.b64encode(image_bytes).decode('utf-8')
             image_url = f"data:image/png;base64,{encoded_image}"

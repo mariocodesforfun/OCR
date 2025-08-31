@@ -51,18 +51,18 @@ def run_markdown_ocr_on_images(ground_truth_data):
     print("\nRunning Markdown OCR on images...")
     ocr_client = OCRClient()
     predictions = []
-    
+
     for i, gt_data in enumerate(ground_truth_data):
         image_file = gt_data['image_file']
         print(f"Processing {i+1}/{len(ground_truth_data)}: {image_file}")
-        
+
         try:
             with open(image_file, 'rb') as f:
                 image_bytes = f.read()
-            
+
             # Run Markdown OCR
-            markdown_result = ocr_client.markdown(image_bytes)
-            
+            markdown_result = ocr_client.markdown_openai(image_bytes)
+
             predictions.append({
                 'sample_id': gt_data['sample_id'],
                 'image_file': image_file,
@@ -70,7 +70,7 @@ def run_markdown_ocr_on_images(ground_truth_data):
                 'success': True
             })
             print(f"✓ Markdown OCR completed")
-            
+
         except Exception as e:
             print(f"✗ Markdown OCR failed: {e}")
             predictions.append({
@@ -80,16 +80,16 @@ def run_markdown_ocr_on_images(ground_truth_data):
                 'error': str(e),
                 'success': False
             })
-    
+
     return predictions
 
 def save_markdown_ground_truth_predictions(ground_truth_data, predictions):
     """Save Markdown ground truth and prediction data to files."""
     print("\nSaving Markdown ground truth and predictions...")
-    
+
     # Create timestamp for file naming
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Prepare data for saving
     evaluation_data = []
     for gt, pred in zip(ground_truth_data, predictions):
@@ -100,7 +100,7 @@ def save_markdown_ground_truth_predictions(ground_truth_data, predictions):
             'ground_truth_markdown': gt['true_markdown'],
             'ocr_success': pred['success']
         }
-        
+
         if pred['success']:
             data_entry.update({
                 'markdown_prediction': pred['markdown_prediction']
@@ -110,17 +110,17 @@ def save_markdown_ground_truth_predictions(ground_truth_data, predictions):
                 'markdown_prediction': None,
                 'error': pred.get('error', 'Unknown error')
             })
-        
+
         evaluation_data.append(data_entry)
-    
+
     # Save as JSON
     json_filename = f'markdown_evaluation_data_{timestamp}.json'
     with open(json_filename, 'w') as f:
         json.dump(evaluation_data, f, indent=2, default=str)
-    
+
     # Save as Excel
     excel_filename = f'markdown_evaluation_data_{timestamp}.xlsx'
-    
+
     # Create DataFrames
     df_main = pd.DataFrame([
         {
@@ -132,7 +132,7 @@ def save_markdown_ground_truth_predictions(ground_truth_data, predictions):
         }
         for entry in evaluation_data
     ])
-    
+
     df_markdown = pd.DataFrame([
         {
             'Sample ID': entry['sample_id'],
@@ -141,22 +141,22 @@ def save_markdown_ground_truth_predictions(ground_truth_data, predictions):
         }
         for entry in evaluation_data
     ])
-    
+
     # Save to Excel
     with pd.ExcelWriter(excel_filename, engine='openpyxl') as writer:
         df_main.to_excel(writer, sheet_name='Overview', index=False)
         df_markdown.to_excel(writer, sheet_name='Markdown_Data', index=False)
-    
+
     print(f"✓ Markdown data saved to:")
     print(f"  JSON: {json_filename}")
     print(f"  Excel: {excel_filename}")
-    
+
     return json_filename, excel_filename
 
 def create_markdown_evaluation_ready_data(ground_truth_data, predictions):
     """Create Markdown data structures ready for evaluation."""
     print("\nPreparing Markdown evaluation-ready data...")
-    
+
     # Structure for Markdown evaluation
     markdown_evaluation_data = {
         'ground_truth': [gt['true_markdown'] for gt in ground_truth_data],
@@ -165,17 +165,17 @@ def create_markdown_evaluation_ready_data(ground_truth_data, predictions):
         'sample_ids': [gt['sample_id'] for gt in ground_truth_data],
         'success_flags': [pred['success'] for pred in predictions]
     }
-    
+
     # Save evaluation-ready data
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     markdown_eval_filename = f'markdown_evaluation_ready_{timestamp}.json'
     with open(markdown_eval_filename, 'w') as f:
         json.dump(markdown_evaluation_data, f, indent=2, default=str)
-    
+
     print(f"✓ Markdown evaluation-ready data saved to:")
     print(f"  Markdown evaluation: {markdown_eval_filename}")
-    
+
     return markdown_eval_filename
 
 def main():
@@ -183,19 +183,19 @@ def main():
     print("="*60)
     print("MARKDOWN GROUND TRUTH & PREDICTION DATA COLLECTOR")
     print("="*60)
-    
+
     # Step 1: Download images and get Markdown ground truth
     ground_truth_data = download_dataset_images()
-    
+
     # Step 2: Run Markdown OCR
     predictions = run_markdown_ocr_on_images(ground_truth_data)
-    
+
     # Step 3: Save all Markdown data
     json_file, excel_file = save_markdown_ground_truth_predictions(ground_truth_data, predictions)
-    
+
     # Step 4: Create Markdown evaluation-ready data
     markdown_eval_file = create_markdown_evaluation_ready_data(ground_truth_data, predictions)
-    
+
     # Summary
     successful_ocr = sum(1 for pred in predictions if pred['success'])
     total_samples = len(predictions)
