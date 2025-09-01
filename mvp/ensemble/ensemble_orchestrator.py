@@ -125,9 +125,23 @@ class EnsembleOrchestrator:
         """Save uploaded image to temporary file and return path"""
         file_content = file.file.read()
 
+        # Extract safe file extension, handling long URLs
+        if file.filename:
+            # Handle URLs with query parameters - extract just the extension before '?'
+            filename_clean = file.filename.split('?')[0]
+            if '.' in filename_clean:
+                extension = filename_clean.split('.')[-1]
+            else:
+                extension = 'jpg'
+        else:
+            extension = 'jpg'
+
+        # Limit extension length to prevent filesystem issues
+        extension = extension[:10] if extension else 'jpg'
+
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=f".{file.filename.split('.')[-1] if file.filename else 'jpg'}"
+            suffix=f".{extension}"
         ) as temp_file:
             temp_file.write(file_content)
             return temp_file.name

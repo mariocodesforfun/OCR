@@ -10,7 +10,7 @@ load_dotenv()
 class GeminiProvider(BaseOCRProvider):
     """Gemini 2.0 Flash OCR provider implementation"""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.0-flash"):
         try:
             self.genai = genai
         except ImportError:
@@ -31,9 +31,9 @@ class GeminiProvider(BaseOCRProvider):
             self.model = genai.GenerativeModel(model)
         except Exception as e:
             # Try with a different model if the specified one fails
-            print(f"Warning: Could not load model {model}, trying gemini-1.5-flash")
-            self.model = genai.GenerativeModel("gemini-1.5-flash")
-            self.model_name = "gemini-1.5-flash"
+            print(f"Warning: Could not load model {model}, trying gemini-2.0-flash")
+            self.model = genai.GenerativeModel("gemini-2.0-flash")
+            self.model_name = "gemini-2.0-flash"
 
     def extract_markdown(self, image_bytes: bytes) -> str:
         """Extract markdown from image using Gemini 2.0 Flash"""
