@@ -2,7 +2,7 @@ import base64
 import json
 from typing import Dict, Any
 from openai import OpenAI
-from prompts.prompt import system_prompt, user_prompt
+from prompts.prompt import SYSTEM_MARKDOWN_PROMPT, USER_MARKDOWN_PROMPT
 
 
 class OCRClient:
@@ -18,8 +18,8 @@ class OCRClient:
             response = self.client.chat.completions.create(
                 model="gpt-4o-2024-08-06",
                 messages=[
-                    {"role": "system", "content": system_prompt()},
-                    {"role": "user", "content": [ {"type": "text", "text": user_prompt()},
+                    {"role": "system", "content": SYSTEM_MARKDOWN_PROMPT},
+                    {"role": "user", "content": [ {"type": "text", "text": USER_MARKDOWN_PROMPT},
                                                 {"type": "image_url", "image_url": {"url": image_url}}
                     ]
                     }
