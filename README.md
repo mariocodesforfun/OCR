@@ -23,13 +23,13 @@ uvicorn app:app --reload
 
 4. **Use the API:**
 - Health check: `GET http://localhost:8000/`
-- OCR endpoint: `POST http://localhost:8000/v1/ocr-json`
+- OCR endpoint: `POST http://localhost:8000/v1/ocr-md`
 - API docs: `http://localhost:8000/docs`
 
 ## Example Usage
 
 ```bash
-curl -X POST "http://localhost:8000/v1/ocr-json" \
+curl -X POST "http://localhost:8000/v1/ocr-md" \
      -H "Content-Type: multipart/form-data" \
      -F "file=@your_document.pdf"
 ```
@@ -48,5 +48,5 @@ ocr_service/
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.11+
 - OpenAI API key

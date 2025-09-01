@@ -15,6 +15,10 @@ app = FastAPI()
 def health():
     return {"status": "healthy"}
 
-@app.post("/v1/md")
+@app.post("/v1/ocr-md")
 def ocr_json(file: UploadFile = File(...)):
     return ocr_orchestrator.process_ocr_markdown(file)
+
+# @app.post("/v1/ocr-json")
+# def ocr_json(file: UploadFile = File(...)):
+#     return ocr_orchestrator.process_ocr_json(file)
