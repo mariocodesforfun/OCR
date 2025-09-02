@@ -1,4 +1,6 @@
 import tempfile
+import hashlib
+import uuid
 from typing import Dict, Any, List, Optional
 from fastapi import UploadFile
 
@@ -48,14 +50,19 @@ class EnsembleOrchestrator:
             image_bytes = self._prepare_image(file)
 
             # Step 1: Dual-Model OCR
+            
+            # Primary model
             primary_markdown = self.primary_provider.extract_markdown(image_bytes)
+            
+            # Secondary model
             secondary_markdown = self.secondary_provider.extract_markdown(image_bytes)
 
             # Step 2: Binary Disagreement Detection
             disagreements = self.comparator.detect_disagreements(primary_markdown, secondary_markdown)
+
             has_disagreements = self.comparator.has_significant_disagreements(disagreements)
 
-            # Step 3: Simple Resolution
+            # Step 3: Resolution
             if has_disagreements:
                 final_markdown = self._adjudicate_disagreements(
                     image_bytes, primary_markdown, secondary_markdown, disagreements
@@ -65,7 +72,7 @@ class EnsembleOrchestrator:
                 final_markdown = self._select_best_markdown(primary_markdown, secondary_markdown)
                 resolution_method = "selection"
 
-            # Step 4: Single JSON Extraction
+            # Step 4: JSON Extraction
             extracted_json = self.json_extractor.extract_json(final_markdown, schema)
 
             return {
@@ -125,26 +132,35 @@ class EnsembleOrchestrator:
         """Save uploaded image to temporary file and return path"""
         file_content = file.file.read()
 
-        # Extract safe file extension, handling long URLs
+        # Generate a safe, short filename instead of using the long URL
+
+        content_hash = hashlib.md5(file_content).hexdigest()[:8]
+
+        # Generate a unique identifier
+        unique_id = str(uuid.uuid4())[:8]
+
+        # Use a safe extension
         if file.filename:
-            # Handle URLs with query parameters - extract just the extension before '?'
             filename_clean = file.filename.split('?')[0]
             if '.' in filename_clean:
                 extension = filename_clean.split('.')[-1]
+                extension = extension[:5] if len(extension) <= 5 else 'jpg'
             else:
                 extension = 'jpg'
         else:
             extension = 'jpg'
 
-        # Limit extension length to prevent filesystem issues
-        extension = extension[:10] if extension else 'jpg'
+        # Create a safe, short filename
+        safe_filename = f"img_{content_hash}_{unique_id}.{extension}"
 
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=f".{extension}"
+            suffix=f".{extension}",
+            prefix="supreme_ocr_"
         ) as temp_file:
             temp_file.write(file_content)
-            return temp_file.name
+            temp_path = temp_file.name
+            return temp_path
 
     def _adjudicate_disagreements(self,
                                 image_bytes: bytes,
