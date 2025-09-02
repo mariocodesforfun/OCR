@@ -10,6 +10,7 @@ from providers.base_ocr_provider import BaseOCRProvider
 from .markdown_comparator import MarkdownComparator, Disagreement
 from utils.json_extractor import JSONExtractor
 from utils.pdf_processor import PDFProcessor
+from orchestrator import OCROrchestrator
 
 # Configure logging for ensemble operations
 logger = logging.getLogger(__name__)
@@ -118,27 +119,28 @@ class EnsembleOrchestrator:
                 resolution_method = "primary_only"
                 disagreements = []
             else:
-                # Step 2: Binary Disagreement Detection (both providers succeeded)
-                logger.info("Step 2: Detecting disagreements")
+                # Step 2: Simplified Disagreement Detection (both providers succeeded)
+                logger.info("Step 2: Checking for critical disagreements only")
                 disagreements = self.comparator.detect_disagreements(primary_markdown, secondary_markdown)
-                logger.info(f"Found {len(disagreements)} disagreements")
+                logger.info(f"Found {len(disagreements)} critical disagreements")
                 
-                for i, d in enumerate(disagreements):
-                    logger.info(f"Disagreement {i+1}: {d.type.value} at {d.location} (confidence: {d.confidence:.2f})")
+                if disagreements:
+                    for i, d in enumerate(disagreements):
+                        logger.info(f"Critical disagreement {i+1}: {d.location} - '{d.provider1_content}' vs '{d.provider2_content}'")
 
-                has_disagreements = self.comparator.has_significant_disagreements(disagreements)
-                logger.info(f"Has significant disagreements: {has_disagreements}")
+                has_critical_disagreements = self.comparator.has_significant_disagreements(disagreements)
+                logger.info(f"Has critical financial disagreements: {has_critical_disagreements}")
 
-                # Step 3: Resolution
+                # Step 3: Simplified Resolution
                 logger.info("Step 3: Resolution")
-                if has_disagreements:
-                    logger.info(f"Using adjudication with {self.adjudicator_provider.provider_name}")
+                if has_critical_disagreements:
+                    logger.info(f"Critical financial disagreement detected - using adjudication with {self.adjudicator_provider.provider_name}")
                     final_markdown = self._adjudicate_disagreements(
                         image_bytes, primary_markdown, secondary_markdown, disagreements
                     )
                     resolution_method = "adjudication"
                 else:
-                    logger.info("Using selection method")
+                    logger.info("No critical disagreements - using simple selection")
                     final_markdown = self._select_best_markdown(primary_markdown, secondary_markdown)
                     resolution_method = "selection"
             
@@ -149,6 +151,34 @@ class EnsembleOrchestrator:
                 logger.error("CRITICAL: Final markdown is empty!")
             elif len(final_markdown.strip()) < 10:
                 logger.warning(f"WARNING: Final markdown very short: '{final_markdown.strip()}'")
+
+            # Assess ensemble confidence before final extraction
+            ensemble_confidence = self._assess_ensemble_confidence(
+                primary_markdown, secondary_markdown, final_markdown, disagreements, resolution_method
+            )
+            logger.info(f"Ensemble confidence: {ensemble_confidence:.2f}")
+            
+            # Fallback to regular OCR if ensemble confidence is too low
+            if ensemble_confidence < 0.4:  # SIMPLIFIED: Much lower threshold - trust ensemble more
+                logger.warning(f"Low ensemble confidence ({ensemble_confidence:.2f}), falling back to regular OCR")
+                try:
+                    fallback_orchestrator = OCROrchestrator()
+                    
+                    # Reset file pointer for fallback
+                    file.file.seek(0)
+                    fallback_result = fallback_orchestrator.process_ocr_json(file, schema)
+                    
+                    # Add ensemble metadata to fallback result
+                    if isinstance(fallback_result, dict):
+                        fallback_result["ensemble_fallback"] = True
+                        fallback_result["ensemble_confidence"] = ensemble_confidence
+                        fallback_result["ensemble_reason"] = f"Low confidence ({ensemble_confidence:.2f}), used fallback"
+                        logger.info(f"Fallback successful - regular OCR confidence check passed")
+                    
+                    return fallback_result
+                except Exception as fallback_error:
+                    logger.error(f"Fallback failed: {fallback_error}, proceeding with ensemble result")
+                    # Continue with ensemble result if fallback fails
 
             # Step 4: JSON Extraction
             logger.info("Step 4: JSON extraction")
@@ -165,15 +195,16 @@ class EnsembleOrchestrator:
                     "secondary_markdown": secondary_markdown,
                     "disagreements": [self._disagreement_to_dict(d) for d in disagreements],
                     "disagreement_count": len(disagreements),
-                    "has_significant_disagreements": has_disagreements,
+                    "has_significant_disagreements": has_critical_disagreements,
                     "resolution_method": resolution_method,
                     "final_markdown": final_markdown,
-                    "extracted_json": extracted_json
+                    "extracted_json": extracted_json,
+                    "ensemble_confidence": ensemble_confidence
                 },
                 "providers_used": {
                     "primary": self.primary_provider.provider_name,
                     "secondary": self.secondary_provider.provider_name,
-                    "adjudicator": self.adjudicator_provider.provider_name if has_disagreements else None
+                    "adjudicator": self.adjudicator_provider.provider_name if has_critical_disagreements else None
                 },
                 "processing_stats": {
                     "primary_length": len(primary_markdown),
@@ -275,301 +306,67 @@ class EnsembleOrchestrator:
                                  primary_markdown: str,
                                  secondary_markdown: str,
                                  disagreements: List[Disagreement]) -> str:
-        """Build focused adjudication prompt using smart chunking to avoid context overload"""
-
-        # Check if we need chunking based on total content size
-        total_chars = len(primary_markdown) + len(secondary_markdown)
-        max_context_size = 3000  # Conservative limit for focused attention
+        """SIMPLIFIED: Clean prompt that doesn't mention disagreements to avoid confusion"""
         
-        if total_chars <= max_context_size:
-            return self._build_full_context_prompt(primary_markdown, secondary_markdown, disagreements)
-        else:
-            return self._build_chunked_prompt(primary_markdown, secondary_markdown, disagreements)
-    
-    def _build_full_context_prompt(self, primary_markdown: str, secondary_markdown: str, disagreements: List[Disagreement]) -> str:
-        """Build prompt with full context for smaller documents"""
-        critical_issues = self._build_critical_issues_summary(disagreements)
+        # SIMPLIFIED: Don't mention disagreements at all - just ask for clean OCR
+        # This prevents the model from getting confused by conflicting information
+        prompt = """Please extract all text from this image as clean, accurate markdown.
 
-        prompt = f"""You are an expert OCR adjudicator resolving conflicts between two AI models.
+Focus on getting all numbers, especially dollar amounts, exactly right.
 
-CRITICAL MISSION: Extract the EXACT content from the image with perfect accuracy.
-
-CONFLICT SUMMARY ({len(disagreements)} issues detected):
-"""
-        for issue in critical_issues:
-            prompt += f"⚠️ {issue}\n"
-
-        prompt += f"""
-=== ADJUDICATION RULES ===
-1. **NUMBERS ARE SACRED**: Every digit, decimal, currency symbol must be EXACTLY as shown
-2. **VISUAL VERIFICATION**: When models disagree, trust what you see in the image
-3. **COMPLETE ACCURACY**: Missing or incorrect content = failure
-
-=== MODEL OUTPUTS ===
-
-PRIMARY MODEL:
-```
-{primary_markdown}
-```
-
-SECONDARY MODEL:
-```
-{secondary_markdown}
-```
-
-=== TASK ===
-Extract the correct markdown. Focus on resolving the conflicts above.
-Return ONLY the corrected markdown - no explanations.
-"""
+Return only the markdown content:"""
+        
         return prompt
-        
-    def _build_chunked_prompt(self, primary_markdown: str, secondary_markdown: str, disagreements: List[Disagreement]) -> str:
-        """Build focused prompt highlighting only conflicted sections and key context"""
-        
-        # Extract key sections that have conflicts
-        conflict_sections = []
-        
-        for d in disagreements:
-            if d.type.value == "numbers":
-                # Extract sections around number conflicts with more context
-                conflict_sections.extend(self._extract_number_context(primary_markdown, secondary_markdown, d))
-            elif d.type.value == "tables":
-                # Extract table sections
-                conflict_sections.extend(self._extract_table_context(primary_markdown, secondary_markdown))
-            elif d.type.value == "text_content" and "field:" in d.location.lower():
-                # Extract key-value sections
-                conflict_sections.extend(self._extract_field_context(primary_markdown, secondary_markdown, d))
-        
-        # Build focused prompt with only relevant sections
-        prompt = f"""You are an expert OCR adjudicator. The document is large, so I'm showing you ONLY the sections with conflicts.
-
-CRITICAL MISSION: Resolve conflicts in these specific sections by examining the image.
-
-CONFLICTS TO RESOLVE ({len(disagreements)} issues):
-"""
-        
-        critical_issues = self._build_critical_issues_summary(disagreements)
-        for issue in critical_issues:
-            prompt += f"⚠️ {issue}\n"
-
-        prompt += f"""
-=== RULES ===
-1. **EXACT ACCURACY**: Numbers, currency, dates must be pixel-perfect
-2. **VISUAL TRUTH**: Trust what you see in the image over model outputs
-3. **CONTEXT AWARE**: Consider surrounding text for disambiguation
-
-=== CONFLICTED SECTIONS ONLY ===
-"""
-        
-        for i, (section_type, primary_section, secondary_section) in enumerate(conflict_sections[:5]):  # Limit to top 5 conflicts
-            prompt += f"""
-SECTION {i+1} ({section_type}):
-Primary: {primary_section}
-Secondary: {secondary_section}
----"""
-
-        prompt += f"""
-
-=== TASK ===
-For each section above, provide the CORRECT version as it appears in the image.
-Format: SECTION X: [corrected content]
-
-Focus only on the conflicted sections shown above.
-"""
-        return prompt
-        
-    def _build_critical_issues_summary(self, disagreements: List[Disagreement]) -> List[str]:
-        """Build summary of critical issues for adjudication"""
-        critical_issues = []
-        for d in disagreements:
-            if d.type.value == "numbers":
-                critical_issues.append(f"NUMBER CONFLICT: '{d.provider1_content}' vs '{d.provider2_content}' at {d.location}")
-            elif d.type.value == "tables":
-                critical_issues.append(f"TABLE STRUCTURE: Different layouts detected")
-            elif d.type.value == "text_content":
-                if "field:" in d.location.lower():
-                    critical_issues.append(f"FIELD MISMATCH: {d.location}")
-                else:
-                    critical_issues.append(f"TEXT CONTENT: Major differences (confidence: {d.confidence:.1%})")
-        return critical_issues
-        
-    def _extract_number_context(self, primary: str, secondary: str, disagreement: Disagreement) -> List[tuple]:
-        """Extract context around number conflicts"""
-        sections = []
-        
-        # Find the conflicting numbers in context (50 chars around)
-        primary_content = disagreement.provider1_content
-        secondary_content = disagreement.provider2_content
-        
-        # Find position and extract surrounding context
-        primary_context = self._find_content_context(primary, primary_content, 50)
-        secondary_context = self._find_content_context(secondary, secondary_content, 50)
-        
-        if primary_context or secondary_context:
-            sections.append(("NUMBER", primary_context or primary_content, secondary_context or secondary_content))
-            
-        return sections
-        
-    def _extract_table_context(self, primary: str, secondary: str) -> List[tuple]:
-        """Extract table sections for comparison"""
-        sections = []
-        
-        # Extract tables from both
-        primary_tables = self._extract_tables_simple(primary)
-        secondary_tables = self._extract_tables_simple(secondary)
-        
-        # Compare first differing table
-        if primary_tables and secondary_tables:
-            sections.append(("TABLE", primary_tables[0][:200], secondary_tables[0][:200]))
-        elif primary_tables:
-            sections.append(("TABLE", primary_tables[0][:200], "No table found"))
-        elif secondary_tables:
-            sections.append(("TABLE", "No table found", secondary_tables[0][:200]))
-            
-        return sections
-        
-    def _extract_field_context(self, primary: str, secondary: str, disagreement: Disagreement) -> List[tuple]:
-        """Extract key-value field context"""
-        sections = []
-        
-        primary_content = disagreement.provider1_content
-        secondary_content = disagreement.provider2_content
-        
-        # Find the field context (full line containing the field)
-        primary_context = self._find_line_context(primary, primary_content)
-        secondary_context = self._find_line_context(secondary, secondary_content)
-        
-        sections.append(("FIELD", primary_context, secondary_context))
-        return sections
-        
-    def _find_content_context(self, text: str, content: str, context_chars: int) -> str:
-        """Find content in text and return surrounding context"""
-        pos = text.find(content)
-        if pos == -1:
-            return content
-            
-        start = max(0, pos - context_chars)
-        end = min(len(text), pos + len(content) + context_chars)
-        return text[start:end].strip()
-        
-    def _find_line_context(self, text: str, content: str) -> str:
-        """Find content and return the full line containing it"""
-        lines = text.split('\n')
-        for line in lines:
-            if content in line:
-                return line.strip()
-        return content
-        
-    def _extract_tables_simple(self, text: str) -> List[str]:
-        """Simple table extraction for conflict analysis"""
-        tables = []
-        lines = text.split('\n')
-        current_table = []
-        
-        for line in lines:
-            if '|' in line:
-                current_table.append(line)
-            elif current_table:
-                tables.append('\n'.join(current_table))
-                current_table = []
-                
-        if current_table:
-            tables.append('\n'.join(current_table))
-            
-        return tables
 
     def _select_best_markdown(self, primary_markdown: str, secondary_markdown: str) -> str:
-        """Select the better markdown when no significant disagreements exist"""
+        """SIMPLIFIED: Just pick the longer output - length usually correlates with completeness"""
         
-        def calculate_quality_score(markdown: str) -> float:
-            score = 0.0
-            
-            # Critical: Check for empty or minimal content first
-            if not markdown or len(markdown.strip()) < 5:
-                return -100  # Heavily penalize empty results
-            
-            # Enhanced structured content detection
-            table_score = _calculate_table_score(markdown)
-            score += table_score
-            
-            # Number density and accuracy indicators
-            numbers = re.findall(r'\d+\.?\d*', markdown)
-            if numbers:
-                score += min(len(numbers) * 2, 15)  # Cap at 15 points
-                # Bonus for currency and percentages
-                if any(c in markdown for c in ['$', '€', '£', '%']):
-                    score += 8
-
-            # Text structure and completeness
-            lines = [line.strip() for line in markdown.split('\n') if line.strip()]
-            score += min(len(lines), 12)  # Multi-line bonus, capped
-
-            # Specific format indicators (key for documents)
-            if ':' in markdown:  # Key-value pairs
-                score += 5
-            if any(word in markdown.lower() for word in ['total', 'date', 'amount', 'invoice', 'receipt']):
-                score += 6
-            if re.search(r'\d{2}[/-]\d{2}[/-]\d{2,4}', markdown):  # Date patterns
-                score += 4
-                
-            # Length normalization (more sophisticated)
-            length_score = min(len(markdown) / 50, 20)  # Better length scaling
-            score += length_score
-            
-            # Penalize obvious OCR errors
-            if len(markdown) > 500 and markdown.count('\n') < 3:  # Long single line
-                score -= 15
-            if len(set(markdown.replace(' ', ''))) < 10:  # Too few unique characters
-                score -= 10
-            if markdown.count('?') > len(markdown) / 20:  # Too many unknown characters
-                score -= 8
-                
-            return score
-        
-        def _calculate_table_score(markdown: str) -> float:
-            """Calculate score based on table structure quality"""
-            table_score = 0
-            
-            pipe_lines = [line for line in markdown.split('\n') if '|' in line]
-            if len(pipe_lines) >= 2:  # At least header and one row
-                table_score += 12
-                
-                # Check for proper table structure
-                if any('---' in line for line in pipe_lines):
-                    table_score += 5
-                    
-                # Count columns consistency
-                column_counts = [line.count('|') for line in pipe_lines if '|' in line]
-                if column_counts and len(set(column_counts)) == 1:  # Consistent columns
-                    table_score += 8
-                    
-            return table_score
-        
-        primary_score = calculate_quality_score(primary_markdown)
-        secondary_score = calculate_quality_score(secondary_markdown)
-        
-        logger.info(f"Enhanced scoring: Primary={primary_score:.1f} (len={len(primary_markdown)}), Secondary={secondary_score:.1f} (len={len(secondary_markdown)})")
-        
-        # More sophisticated selection logic
-        score_difference = abs(primary_score - secondary_score)
-        
-        if score_difference < 3:  # Very close scores
-            # Use additional tie-breaking criteria
-            primary_numbers = len(re.findall(r'\d+\.?\d*', primary_markdown))
-            secondary_numbers = len(re.findall(r'\d+\.?\d*', secondary_markdown))
-            
-            if primary_numbers != secondary_numbers:
-                selected = "primary" if primary_numbers > secondary_numbers else "secondary"
-                logger.info(f"Tie broken by number count: {selected}")
-                return primary_markdown if selected == "primary" else secondary_markdown
-            
-            # Default to primary if truly tied
-            logger.info("True tie, selecting primary (default)")
+        # SIMPLIFIED: Remove all complex logic, just pick longer output
+        # If neither has content, prefer primary (GPT-4O)
+        if not primary_markdown and not secondary_markdown:
+            logger.warning("Both outputs empty, returning empty string")
+            return ""
+        elif not primary_markdown:
+            logger.info("Primary empty, using secondary")
+            return secondary_markdown
+        elif not secondary_markdown:
+            logger.info("Secondary empty, using primary")
             return primary_markdown
+        elif len(secondary_markdown) > len(primary_markdown):
+            logger.info(f"Selected secondary (longer: {len(secondary_markdown)} vs {len(primary_markdown)})")
+            return secondary_markdown
+        else:
+            logger.info(f"Selected primary (longer or equal: {len(primary_markdown)} vs {len(secondary_markdown)})")
+            return primary_markdown
+
+    def _assess_ensemble_confidence(self, primary: str, secondary: str, final: str, 
+                                  disagreements: List[Disagreement], resolution_method: str) -> float:
+        """SIMPLIFIED: Much more optimistic confidence assessment"""
+        confidence = 0.9  # Start higher - trust the ensemble approach
+
+        # Only major penalties for clear failures
+        if not primary and not secondary:
+            confidence = 0.2  # Both failed - very low confidence
+        elif not primary or not secondary:
+            confidence = 0.7  # One failed - still decent confidence
+
+        # Moderate penalty only for truly empty results
+        if not final or len(final.strip()) < 5:
+            confidence -= 0.4
         
-        selected = "secondary" if secondary_score > primary_score else "primary"
-        logger.info(f"Selected {selected} based on enhanced quality score (diff: {score_difference:.1f})")
-        return secondary_markdown if secondary_score > primary_score else primary_markdown
+        # Very light penalty for disagreements - they might actually help accuracy
+        if len(disagreements) > 0:
+            confidence -= 0.05  # Much smaller penalty
+        
+        # No penalty for adjudication - it's meant to improve accuracy
+        # if resolution_method == "adjudication":
+        #     confidence -= 0.05  # REMOVED
+            
+        # Bigger bonus for having both models succeed
+        if primary and secondary and len(final.strip()) > 20:
+            confidence += 0.1
+            
+        return max(0.0, min(1.0, confidence))
 
     def _disagreement_to_dict(self, disagreement: Disagreement) -> Dict[str, Any]:
         """Convert Disagreement object to dictionary"""

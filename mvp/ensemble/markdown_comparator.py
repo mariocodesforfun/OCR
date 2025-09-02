@@ -22,213 +22,148 @@ class Disagreement:
 
 
 class MarkdownComparator:
-    """Compares two markdown outputs to detect disagreements"""
+    """Simplified comparator that focuses only on critical disagreements"""
 
-    def __init__(self, disagreement_threshold: float = 0.65):
+    def __init__(self, disagreement_threshold: float = 0.9):
         self.disagreement_threshold = disagreement_threshold
-        # More sensitive thresholds for different disagreement types
-        self.number_threshold = 0.8
-        self.table_threshold = 0.7
-        self.text_threshold = 0.6
-        self.structure_threshold = 0.5
+        # SIMPLIFIED: Much more conservative thresholds - only trigger on huge differences
+        self.critical_number_threshold = 0.5   # Only for major number differences (50%+ difference)
+        self.critical_field_threshold = 0.3    # Only for very obvious field differences
 
     def detect_disagreements(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Detect disagreements between two markdown outputs with enhanced JSON-critical detection"""
+        """Ultra-simplified disagreement detection - focus only on critical financial data"""
         disagreements = []
 
-        # Enhanced detection methods
-        disagreements.extend(self._compare_numbers(markdown1, markdown2))
-        disagreements.extend(self._compare_tables(markdown1, markdown2))
-        disagreements.extend(self._compare_text_content(markdown1, markdown2))
-        disagreements.extend(self._compare_structure(markdown1, markdown2))
+        # Only check for critical number disagreements in key financial contexts
+        disagreements.extend(self._compare_critical_numbers_only(markdown1, markdown2))
         
-        # NEW: JSON-critical field detection
-        disagreements.extend(self._compare_json_critical_fields(markdown1, markdown2))
-        disagreements.extend(self._compare_currency_amounts(markdown1, markdown2))
-        disagreements.extend(self._compare_dates(markdown1, markdown2))
-
         return disagreements
+    
+    def _contains_numerical_tables(self, markdown1: str, markdown2: str) -> bool:
+        """Check if either markdown contains tables with numerical data"""
+        for markdown in [markdown1, markdown2]:
+            tables = self._extract_tables(markdown)
+            for table in tables:
+                if re.search(r'\d+\.?\d*', table):  # Contains numbers
+                    return True
+        return False
 
     def has_significant_disagreements(self, disagreements: List[Disagreement]) -> bool:
-        """Determine if disagreements require adjudication using type-specific thresholds"""
+        """SIMPLIFIED: Only trigger for major numerical differences (>$10 or >20% difference)"""
         if not disagreements:
             return False
 
-        # Use type-specific thresholds for more accurate detection
         for d in disagreements:
-            threshold = self._get_threshold_for_type(d.type)
-            if d.confidence > threshold:
-                return True
-
-        # Also check for multiple moderate disagreements
-        moderate_disagreements = [d for d in disagreements if d.confidence > 0.4]
-        if len(moderate_disagreements) >= 3:
-            return True
+            if d.type == DisagreementType.NUMBERS:
+                # Check if difference is actually significant
+                try:
+                    val1 = float(d.provider1_content.replace('$', '').replace(',', ''))
+                    val2 = float(d.provider2_content.replace('$', '').replace(',', ''))
+                    
+                    # Only trigger for major differences: >$10 absolute OR >20% relative
+                    abs_diff = abs(val1 - val2)
+                    if abs_diff > 10:  # More than $10 difference
+                        return True
+                    if max(val1, val2) > 0:  # Avoid division by zero
+                        rel_diff = abs_diff / max(val1, val2)
+                        if rel_diff > 0.2:  # More than 20% difference
+                            return True
+                except (ValueError, ZeroDivisionError):
+                    # If we can't parse numbers, don't trigger adjudication
+                    continue
             
         return False
     
     def _get_threshold_for_type(self, disagreement_type: DisagreementType) -> float:
         """Get confidence threshold based on disagreement type"""
         thresholds = {
-            DisagreementType.NUMBERS: self.number_threshold,
-            DisagreementType.TABLES: self.table_threshold, 
-            DisagreementType.TEXT_CONTENT: self.text_threshold,
-            DisagreementType.STRUCTURE: self.structure_threshold
+            DisagreementType.NUMBERS: self.critical_number_threshold,
+            DisagreementType.TABLES: self.critical_field_threshold, 
+            DisagreementType.TEXT_CONTENT: self.critical_field_threshold,
+            DisagreementType.STRUCTURE: self.critical_field_threshold
         }
         return thresholds.get(disagreement_type, self.disagreement_threshold)
 
-    def _compare_numbers(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Compare numerical values in both markdowns"""
+    def _compare_critical_numbers_only(self, markdown1: str, markdown2: str) -> List[Disagreement]:
+        """SIMPLIFIED: Only compare dollar amounts - ignore formatting/context differences"""
         disagreements = []
-
-        # Extract numbers with context
-        numbers1 = self._extract_numbers_with_context(markdown1)
-        numbers2 = self._extract_numbers_with_context(markdown2)
-
-        # Find mismatched numbers
-        for (num1, context1) in numbers1:
-            matched = False
-            for (num2, context2) in numbers2:
-                if context1 == context2 and num1 == num2:
-                    matched = True
-                    break
-
-            if not matched:
-                # Look for numbers in same context with different values
-                for (num2, context2) in numbers2:
-                    if context1 == context2 and num1 != num2:
+        
+        # SIMPLIFIED: Just look for any dollar amounts anywhere
+        dollar_pattern = r'\$([\d,]+(?:\.\d{2})?)'  # Match $123.45 or $1,234
+        
+        numbers1 = re.findall(dollar_pattern, markdown1)
+        numbers2 = re.findall(dollar_pattern, markdown2)
+        
+        # Convert to floats for comparison
+        try:
+            values1 = [float(n.replace(',', '')) for n in numbers1]
+            values2 = [float(n.replace(',', '')) for n in numbers2]
+            
+            # Only flag if there are different numbers of dollar amounts or major value differences
+            if len(values1) != len(values2):
+                # Different count of dollar amounts - potentially significant
+                disagreements.append(Disagreement(
+                    type=DisagreementType.NUMBERS,
+                    location="Dollar amount count",
+                    provider1_content=f"{len(values1)} amounts: {numbers1}",
+                    provider2_content=f"{len(values2)} amounts: {numbers2}",
+                    confidence=0.8
+                ))
+            else:
+                # Same count - check for major value differences
+                for i, (v1, v2) in enumerate(zip(values1, values2)):
+                    if abs(v1 - v2) > 0.01:  # Any difference at all
                         disagreements.append(Disagreement(
                             type=DisagreementType.NUMBERS,
-                            location=f"Context: {context1}",
-                            provider1_content=str(num1),
-                            provider2_content=str(num2),
+                            location=f"Dollar amount #{i+1}",
+                            provider1_content=numbers1[i] if i < len(numbers1) else "missing",
+                            provider2_content=numbers2[i] if i < len(numbers2) else "missing",
                             confidence=0.9
                         ))
-                        break
-
+        except (ValueError, IndexError):
+            # If parsing fails, don't flag disagreements
+            pass
+        
         return disagreements
-
-    def _compare_tables(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Compare table structures and content"""
-        disagreements = []
-
-        tables1 = self._extract_tables(markdown1)
-        tables2 = self._extract_tables(markdown2)
-
-        # Compare table count
-        if len(tables1) != len(tables2):
-            disagreements.append(Disagreement(
-                type=DisagreementType.TABLES,
-                location="Table count",
-                provider1_content=f"{len(tables1)} tables",
-                provider2_content=f"{len(tables2)} tables",
-                confidence=0.8
-            ))
-
-        # Compare individual tables
-        for i, (table1, table2) in enumerate(zip(tables1, tables2)):
-            if table1 != table2:
-                # Calculate similarity
-                similarity = SequenceMatcher(None, table1, table2).ratio()
-                if similarity < 0.85:  # More sensitive to table differences
-                    disagreements.append(Disagreement(
-                        type=DisagreementType.TABLES,
-                        location=f"Table {i+1}",
-                        provider1_content=table1[:100] + "..." if len(table1) > 100 else table1,
-                        provider2_content=table2[:100] + "..." if len(table2) > 100 else table2,
-                        confidence=1.0 - similarity
-                    ))
-
-        return disagreements
-
-    def _compare_text_content(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Compare general text content"""
-        disagreements = []
-
-        # Remove tables and code blocks for text comparison
-        clean1 = self._clean_markdown_for_text_comparison(markdown1)
-        clean2 = self._clean_markdown_for_text_comparison(markdown2)
-
-        # Calculate overall similarity
-        similarity = SequenceMatcher(None, clean1, clean2).ratio()
-
-        if similarity < 0.7:  # More sensitive to text differences
-            disagreements.append(Disagreement(
-                type=DisagreementType.TEXT_CONTENT,
-                location="Overall content",
-                provider1_content=f"Length: {len(clean1)} chars",
-                provider2_content=f"Length: {len(clean2)} chars",
-                confidence=1.0 - similarity
-            ))
-
-        return disagreements
-
-    def _compare_structure(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Compare markdown structure (headers, lists, etc.)"""
-        disagreements = []
-
-        # Compare header structure
-        headers1 = self._extract_headers(markdown1)
-        headers2 = self._extract_headers(markdown2)
-
-        if headers1 != headers2:
-            disagreements.append(Disagreement(
-                type=DisagreementType.STRUCTURE,
-                location="Header structure",
-                provider1_content=str(headers1),
-                provider2_content=str(headers2),
-                confidence=0.7
-            ))
-
-        # Compare list structures
-        lists1 = self._extract_lists(markdown1)
-        lists2 = self._extract_lists(markdown2)
-
-        if len(lists1) != len(lists2):
-            disagreements.append(Disagreement(
-                type=DisagreementType.STRUCTURE,
-                location="List count",
-                provider1_content=f"{len(lists1)} lists",
-                provider2_content=f"{len(lists2)} lists",
-                confidence=0.6
-            ))
-
-        return disagreements
-
-    def _extract_numbers_with_context(self, text: str) -> List[Tuple[float, str]]:
-        """Extract numbers with their surrounding context - enhanced for accuracy"""
-        numbers_with_context = []
-
-        # Enhanced pattern to match numbers with better context
-        patterns = [
-            r'(.{0,30})(\d{1,3}(?:,\d{3})*\.\d{2})(.{0,30})',  # Currency format: 1,234.56
-            r'(.{0,30})(\d+\.\d{2})(.{0,30})',                 # Decimal: 123.45
-            r'(.{0,20})(\d+\.?\d*)(.{0,20})'                  # General numbers
-        ]
-
-        processed_positions = set()
+    
+    def _extract_critical_financial_numbers(self, text: str, patterns: List[str]) -> List[Tuple[str, str]]:
+        """Extract only clearly identified financial numbers"""
+        results = []
         
         for pattern in patterns:
-            for match in re.finditer(pattern, text):
-                start_pos = match.start(2)
-                if start_pos in processed_positions:
-                    continue
-                    
-                try:
-                    number_str = match.group(2).replace(',', '')
-                    number = float(number_str)
-                    context = (match.group(1) + match.group(3)).strip()
-                    # Clean context for better matching
-                    context = re.sub(r'\s+', ' ', context)
-                    numbers_with_context.append((number, context))
-                    processed_positions.add(start_pos)
-                except ValueError:
-                    continue
-
-        return numbers_with_context
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                if len(match.groups()) == 2:
+                    context = match.group(1).strip().lower()
+                    value = match.group(2).strip()
+                    results.append((context, value))
+                elif len(match.groups()) == 1:
+                    value = match.group(1).strip()
+                    # Look for context around the number
+                    start = max(0, match.start() - 20)
+                    end = min(len(text), match.end() + 20)
+                    context_text = text[start:end].lower()
+                    if any(word in context_text for word in ['total', 'amount', 'price', 'tax']):
+                        results.append(("financial_amount", value))
+        
+        return results
+    
+    def _normalize_context(self, context: str) -> str:
+        """Normalize context for comparison"""
+        context = context.lower().strip()
+        # Map similar contexts
+        if 'total' in context:
+            return 'total'
+        elif 'amount' in context:
+            return 'amount'
+        elif 'tax' in context:
+            return 'tax'
+        elif 'price' in context:
+            return 'price'
+        return context
 
     def _extract_tables(self, text: str) -> List[str]:
-        """Extract markdown tables"""
+        """Extract markdown tables - minimal implementation"""
         tables = []
         lines = text.split('\n')
         current_table = []
@@ -249,154 +184,3 @@ class MarkdownComparator:
             tables.append('\n'.join(current_table))
 
         return tables
-
-    def _extract_headers(self, text: str) -> List[str]:
-        """Extract markdown headers"""
-        headers = []
-        for line in text.split('\n'):
-            if line.strip().startswith('#'):
-                headers.append(line.strip())
-        return headers
-
-    def _extract_lists(self, text: str) -> List[str]:
-        """Extract markdown lists"""
-        lists = []
-        current_list = []
-
-        for line in text.split('\n'):
-            stripped = line.strip()
-            if stripped.startswith(('-', '*', '+')) or re.match(r'^\d+\.', stripped):
-                current_list.append(stripped)
-            elif current_list and stripped == '':
-                continue  # Empty line in list
-            elif current_list:
-                # End of list
-                lists.append('\n'.join(current_list))
-                current_list = []
-
-        if current_list:
-            lists.append('\n'.join(current_list))
-
-        return lists
-
-    def _clean_markdown_for_text_comparison(self, text: str) -> str:
-        """Remove markdown formatting for text comparison"""
-        # Remove tables
-        text = re.sub(r'\|.*?\|', '', text)
-
-        # Remove code blocks
-        text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
-        text = re.sub(r'`.*?`', '', text)
-
-        # Remove headers
-        text = re.sub(r'^#+\s.*$', '', text, flags=re.MULTILINE)
-
-        # Remove list markers
-        text = re.sub(r'^\s*[-*+]\s', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*\d+\.\s', '', text, flags=re.MULTILINE)
-
-        return text.strip()
-        
-    def _compare_json_critical_fields(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Compare fields commonly extracted to JSON with high accuracy requirements"""
-        disagreements = []
-        
-        # Key-value pattern matching for invoice/receipt fields
-        kv_patterns = [
-            r'(total|amount|subtotal|tax|discount)\s*:?\s*([\d.,]+)',
-            r'(date|invoice|receipt)\s*:?\s*([\w\s/-]+)',
-            r'(vendor|company|merchant)\s*:?\s*([\w\s&.,-]+)'
-        ]
-        
-        for pattern in kv_patterns:
-            matches1 = re.findall(pattern, markdown1, re.IGNORECASE)
-            matches2 = re.findall(pattern, markdown2, re.IGNORECASE)
-            
-            # Compare extracted key-value pairs
-            for key1, value1 in matches1:
-                found_match = False
-                for key2, value2 in matches2:
-                    if key1.lower() == key2.lower():
-                        if value1.strip() != value2.strip():
-                            disagreements.append(Disagreement(
-                                type=DisagreementType.TEXT_CONTENT,
-                                location=f"JSON field: {key1}",
-                                provider1_content=value1.strip(),
-                                provider2_content=value2.strip(), 
-                                confidence=0.95  # High confidence for field mismatches
-                            ))
-                        found_match = True
-                        break
-                        
-                if not found_match:
-                    # Field exists in one but not the other
-                    disagreements.append(Disagreement(
-                        type=DisagreementType.TEXT_CONTENT,
-                        location=f"Missing field: {key1}",
-                        provider1_content=f"{key1}: {value1}",
-                        provider2_content="Field not found",
-                        confidence=0.85
-                    ))
-                    
-        return disagreements
-        
-    def _compare_currency_amounts(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Enhanced currency amount comparison with context"""
-        disagreements = []
-        
-        # More sophisticated currency pattern
-        currency_pattern = r'([\$€£¥])\s*([\d,]+\.?\d*)|(\b\d+\.\d{2}\b)\s*([\$€£¥])'
-        
-        amounts1 = re.findall(currency_pattern, markdown1)
-        amounts2 = re.findall(currency_pattern, markdown2)
-        
-        # Normalize amounts for comparison
-        def normalize_amount(match):
-            if match[0]:  # $X.XX format
-                return f"{match[0]}{match[1]}"
-            else:  # X.XX$ format
-                return f"{match[3]}{match[2]}"
-        
-        normalized1 = [normalize_amount(m) for m in amounts1]
-        normalized2 = [normalize_amount(m) for m in amounts2]
-        
-        # Compare normalized amounts
-        if set(normalized1) != set(normalized2):
-            disagreements.append(Disagreement(
-                type=DisagreementType.NUMBERS,
-                location="Currency amounts",
-                provider1_content=str(normalized1),
-                provider2_content=str(normalized2),
-                confidence=0.9
-            ))
-            
-        return disagreements
-
-    def _compare_dates(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Compare date formats and values"""
-        disagreements = []
-
-        # Multiple date patterns
-        date_patterns = [
-            r'\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b',  # MM/DD/YYYY or DD/MM/YYYY
-            r'\b(\d{4}[/-]\d{1,2}[/-]\d{1,2})\b',      # YYYY/MM/DD
-            r'\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b' # Month DD, YYYY
-        ]
-
-        dates1 = set()
-        dates2 = set()
-
-        for pattern in date_patterns:
-            dates1.update(re.findall(pattern, markdown1))
-            dates2.update(re.findall(pattern, markdown2))
-
-        if dates1 != dates2:
-            disagreements.append(Disagreement(
-                type=DisagreementType.TEXT_CONTENT,
-                location="Date values",
-                provider1_content=str(sorted(dates1)),
-                provider2_content=str(sorted(dates2)),
-                confidence=0.85
-            ))
-
-        return disagreements

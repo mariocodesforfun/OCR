@@ -19,7 +19,6 @@ logging.basicConfig(
     ]
 )
 
-ocr_orchestrator = OCROrchestrator()
 
 app = FastAPI()
 
@@ -29,6 +28,7 @@ def health():
 
 @app.post("/v1/ocr-md")
 def ocr_md(file: UploadFile = File(...)):
+    ocr_orchestrator = OCROrchestrator()
     return ocr_orchestrator.process_ocr_markdown(file)
 
 
@@ -37,6 +37,7 @@ def ocr_json(file: UploadFile = File(...), schema: str = Form(...)):
     try:
         # Parse the schema from JSON string
         parsed_schema = json.loads(schema)
+        ocr_orchestrator = OCROrchestrator()
         return ocr_orchestrator.process_ocr_json(file, parsed_schema)
     except json.JSONDecodeError as e:
         return {"error": f"Invalid JSON schema: {str(e)}"}
