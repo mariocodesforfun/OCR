@@ -1,6 +1,7 @@
 from typing import Union, Dict, Any
 from dotenv import load_dotenv
 import json
+import logging
 
 from fastapi import FastAPI, UploadFile, File, Form
 from orchestrator import OCROrchestrator
@@ -8,6 +9,15 @@ from ensemble.ensemble_orchestrator import EnsembleOrchestrator
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 
 ocr_orchestrator = OCROrchestrator()
 

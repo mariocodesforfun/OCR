@@ -24,26 +24,58 @@ class Disagreement:
 class MarkdownComparator:
     """Compares two markdown outputs to detect disagreements"""
 
-    def __init__(self, disagreement_threshold: float = 0.7):
+    def __init__(self, disagreement_threshold: float = 0.65):
         self.disagreement_threshold = disagreement_threshold
+        # More sensitive thresholds for different disagreement types
+        self.number_threshold = 0.8
+        self.table_threshold = 0.7
+        self.text_threshold = 0.6
+        self.structure_threshold = 0.5
 
     def detect_disagreements(self, markdown1: str, markdown2: str) -> List[Disagreement]:
-        """Detect disagreements between two markdown outputs"""
+        """Detect disagreements between two markdown outputs with enhanced JSON-critical detection"""
         disagreements = []
 
+        # Enhanced detection methods
         disagreements.extend(self._compare_numbers(markdown1, markdown2))
         disagreements.extend(self._compare_tables(markdown1, markdown2))
         disagreements.extend(self._compare_text_content(markdown1, markdown2))
         disagreements.extend(self._compare_structure(markdown1, markdown2))
+        
+        # NEW: JSON-critical field detection
+        disagreements.extend(self._compare_json_critical_fields(markdown1, markdown2))
+        disagreements.extend(self._compare_currency_amounts(markdown1, markdown2))
+        disagreements.extend(self._compare_dates(markdown1, markdown2))
 
         return disagreements
 
     def has_significant_disagreements(self, disagreements: List[Disagreement]) -> bool:
-        """Determine if disagreements require adjudication"""
+        """Determine if disagreements require adjudication using type-specific thresholds"""
         if not disagreements:
             return False
 
-        return any(d.confidence > self.disagreement_threshold for d in disagreements)
+        # Use type-specific thresholds for more accurate detection
+        for d in disagreements:
+            threshold = self._get_threshold_for_type(d.type)
+            if d.confidence > threshold:
+                return True
+
+        # Also check for multiple moderate disagreements
+        moderate_disagreements = [d for d in disagreements if d.confidence > 0.4]
+        if len(moderate_disagreements) >= 3:
+            return True
+            
+        return False
+    
+    def _get_threshold_for_type(self, disagreement_type: DisagreementType) -> float:
+        """Get confidence threshold based on disagreement type"""
+        thresholds = {
+            DisagreementType.NUMBERS: self.number_threshold,
+            DisagreementType.TABLES: self.table_threshold, 
+            DisagreementType.TEXT_CONTENT: self.text_threshold,
+            DisagreementType.STRUCTURE: self.structure_threshold
+        }
+        return thresholds.get(disagreement_type, self.disagreement_threshold)
 
     def _compare_numbers(self, markdown1: str, markdown2: str) -> List[Disagreement]:
         """Compare numerical values in both markdowns"""
@@ -98,7 +130,7 @@ class MarkdownComparator:
             if table1 != table2:
                 # Calculate similarity
                 similarity = SequenceMatcher(None, table1, table2).ratio()
-                if similarity < 0.8:  # Significant difference
+                if similarity < 0.85:  # More sensitive to table differences
                     disagreements.append(Disagreement(
                         type=DisagreementType.TABLES,
                         location=f"Table {i+1}",
@@ -120,7 +152,7 @@ class MarkdownComparator:
         # Calculate overall similarity
         similarity = SequenceMatcher(None, clean1, clean2).ratio()
 
-        if similarity < 0.7:  # Significant text differences
+        if similarity < 0.7:  # More sensitive to text differences
             disagreements.append(Disagreement(
                 type=DisagreementType.TEXT_CONTENT,
                 location="Overall content",
@@ -164,19 +196,34 @@ class MarkdownComparator:
         return disagreements
 
     def _extract_numbers_with_context(self, text: str) -> List[Tuple[float, str]]:
-        """Extract numbers with their surrounding context"""
+        """Extract numbers with their surrounding context - enhanced for accuracy"""
         numbers_with_context = []
 
-        # Pattern to match numbers with context
-        pattern = r'(.{0,20})(\d+\.?\d*)(.{0,20})'
+        # Enhanced pattern to match numbers with better context
+        patterns = [
+            r'(.{0,30})(\d{1,3}(?:,\d{3})*\.\d{2})(.{0,30})',  # Currency format: 1,234.56
+            r'(.{0,30})(\d+\.\d{2})(.{0,30})',                 # Decimal: 123.45
+            r'(.{0,20})(\d+\.?\d*)(.{0,20})'                  # General numbers
+        ]
 
-        for match in re.finditer(pattern, text):
-            try:
-                number = float(match.group(2))
-                context = (match.group(1) + match.group(3)).strip()
-                numbers_with_context.append((number, context))
-            except ValueError:
-                continue
+        processed_positions = set()
+        
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                start_pos = match.start(2)
+                if start_pos in processed_positions:
+                    continue
+                    
+                try:
+                    number_str = match.group(2).replace(',', '')
+                    number = float(number_str)
+                    context = (match.group(1) + match.group(3)).strip()
+                    # Clean context for better matching
+                    context = re.sub(r'\s+', ' ', context)
+                    numbers_with_context.append((number, context))
+                    processed_positions.add(start_pos)
+                except ValueError:
+                    continue
 
         return numbers_with_context
 
@@ -249,3 +296,107 @@ class MarkdownComparator:
         text = re.sub(r'^\s*\d+\.\s', '', text, flags=re.MULTILINE)
 
         return text.strip()
+        
+    def _compare_json_critical_fields(self, markdown1: str, markdown2: str) -> List[Disagreement]:
+        """Compare fields commonly extracted to JSON with high accuracy requirements"""
+        disagreements = []
+        
+        # Key-value pattern matching for invoice/receipt fields
+        kv_patterns = [
+            r'(total|amount|subtotal|tax|discount)\s*:?\s*([\d.,]+)',
+            r'(date|invoice|receipt)\s*:?\s*([\w\s/-]+)',
+            r'(vendor|company|merchant)\s*:?\s*([\w\s&.,-]+)'
+        ]
+        
+        for pattern in kv_patterns:
+            matches1 = re.findall(pattern, markdown1, re.IGNORECASE)
+            matches2 = re.findall(pattern, markdown2, re.IGNORECASE)
+            
+            # Compare extracted key-value pairs
+            for key1, value1 in matches1:
+                found_match = False
+                for key2, value2 in matches2:
+                    if key1.lower() == key2.lower():
+                        if value1.strip() != value2.strip():
+                            disagreements.append(Disagreement(
+                                type=DisagreementType.TEXT_CONTENT,
+                                location=f"JSON field: {key1}",
+                                provider1_content=value1.strip(),
+                                provider2_content=value2.strip(), 
+                                confidence=0.95  # High confidence for field mismatches
+                            ))
+                        found_match = True
+                        break
+                        
+                if not found_match:
+                    # Field exists in one but not the other
+                    disagreements.append(Disagreement(
+                        type=DisagreementType.TEXT_CONTENT,
+                        location=f"Missing field: {key1}",
+                        provider1_content=f"{key1}: {value1}",
+                        provider2_content="Field not found",
+                        confidence=0.85
+                    ))
+                    
+        return disagreements
+        
+    def _compare_currency_amounts(self, markdown1: str, markdown2: str) -> List[Disagreement]:
+        """Enhanced currency amount comparison with context"""
+        disagreements = []
+        
+        # More sophisticated currency pattern
+        currency_pattern = r'([\$€£¥])\s*([\d,]+\.?\d*)|(\b\d+\.\d{2}\b)\s*([\$€£¥])'
+        
+        amounts1 = re.findall(currency_pattern, markdown1)
+        amounts2 = re.findall(currency_pattern, markdown2)
+        
+        # Normalize amounts for comparison
+        def normalize_amount(match):
+            if match[0]:  # $X.XX format
+                return f"{match[0]}{match[1]}"
+            else:  # X.XX$ format
+                return f"{match[3]}{match[2]}"
+        
+        normalized1 = [normalize_amount(m) for m in amounts1]
+        normalized2 = [normalize_amount(m) for m in amounts2]
+        
+        # Compare normalized amounts
+        if set(normalized1) != set(normalized2):
+            disagreements.append(Disagreement(
+                type=DisagreementType.NUMBERS,
+                location="Currency amounts",
+                provider1_content=str(normalized1),
+                provider2_content=str(normalized2),
+                confidence=0.9
+            ))
+            
+        return disagreements
+
+    def _compare_dates(self, markdown1: str, markdown2: str) -> List[Disagreement]:
+        """Compare date formats and values"""
+        disagreements = []
+
+        # Multiple date patterns
+        date_patterns = [
+            r'\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b',  # MM/DD/YYYY or DD/MM/YYYY
+            r'\b(\d{4}[/-]\d{1,2}[/-]\d{1,2})\b',      # YYYY/MM/DD
+            r'\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b' # Month DD, YYYY
+        ]
+
+        dates1 = set()
+        dates2 = set()
+
+        for pattern in date_patterns:
+            dates1.update(re.findall(pattern, markdown1))
+            dates2.update(re.findall(pattern, markdown2))
+
+        if dates1 != dates2:
+            disagreements.append(Disagreement(
+                type=DisagreementType.TEXT_CONTENT,
+                location="Date values",
+                provider1_content=str(sorted(dates1)),
+                provider2_content=str(sorted(dates2)),
+                confidence=0.85
+            ))
+
+        return disagreements
