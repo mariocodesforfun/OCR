@@ -1,7 +1,7 @@
 import base64
 from typing import Dict, Any, Optional
 from .base_ocr_provider import BaseOCRProvider
-from prompts.prompt import SYSTEM_MARKDOWN_PROMPT, USER_MARKDOWN_PROMPT
+from prompts.prompt import SYSTEM_MARKDOWN_PROMPT, USER_MARKDOWN_PROMPT, build_schema_aware_markdown_prompt
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -35,15 +35,20 @@ class GeminiProvider(BaseOCRProvider):
             self.model = genai.GenerativeModel("gemini-2.0-flash")
             self.model_name = "gemini-2.0-flash"
 
-    def extract_markdown(self, image_bytes: bytes) -> str:
-        """Extract markdown from image using Gemini 2.0 Flash"""
+    def extract_markdown(self, image_bytes: bytes, schema: Optional[Dict[str, Any]] = None) -> str:
+        """Extract markdown from image using Gemini 2.0 Flash, optionally using schema for better extraction"""
         try:
             import io
             from PIL import Image
 
             image = Image.open(io.BytesIO(image_bytes))
 
-            prompt = f"{SYSTEM_MARKDOWN_PROMPT}\n\n{USER_MARKDOWN_PROMPT}"
+            # Use schema-aware prompts if schema is provided
+            if schema:
+                system_prompt, user_prompt = build_schema_aware_markdown_prompt(schema)
+                prompt = f"{system_prompt}\n\n{user_prompt}"
+            else:
+                prompt = f"{SYSTEM_MARKDOWN_PROMPT}\n\n{USER_MARKDOWN_PROMPT}"
 
             response = self.model.generate_content([
                 prompt,
@@ -58,7 +63,7 @@ class GeminiProvider(BaseOCRProvider):
         except Exception as e:
             raise Exception(f"Gemini markdown extraction failed: {str(e)}")
 
-    def extract_markdown_with_context(self, image_bytes: bytes, context_prompt: str) -> str:
+    def extract_markdown_with_context(self, image_bytes: bytes, context_prompt: str, schema: Optional[Dict[str, Any]] = None) -> str:
         """Extract markdown with additional context for adjudication"""
         try:
             import io
@@ -66,7 +71,9 @@ class GeminiProvider(BaseOCRProvider):
 
             image = Image.open(io.BytesIO(image_bytes))
 
-            full_prompt = f"{SYSTEM_MARKDOWN_PROMPT}\n\n{context_prompt}"
+            # Use schema-aware system prompt if schema is provided
+            system_prompt = build_schema_aware_markdown_prompt(schema)[0] if schema else SYSTEM_MARKDOWN_PROMPT
+            full_prompt = f"{system_prompt}\n\n{context_prompt}"
 
             response = self.model.generate_content([
                 full_prompt,

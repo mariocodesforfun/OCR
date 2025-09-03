@@ -55,7 +55,7 @@ class OCROrchestrator:
         with open(image_paths[0], 'rb') as f:
             image_bytes = f.read()
 
-        markdown_result = self.ocr_client.markdown_openai(image_bytes)
+        markdown_result = self.ocr_client.markdown_openai(image_bytes, schema)
 
         json_result = self.json_extractor.extract_json(markdown_result, schema)
 
