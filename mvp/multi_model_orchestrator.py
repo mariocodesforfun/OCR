@@ -8,6 +8,7 @@ import base64
 import os
 from providers.mistral_ocr_provider import MistralOCRProvider
 from providers.gpt4o_provider import GPT4OProvider
+from providers.gemini_segment import GeminiSegmentProvider
 
 class MultiModelOCROrchestrator:
     def __init__(self):
@@ -16,6 +17,7 @@ class MultiModelOCROrchestrator:
         self.json_extractor = JSONExtractor()
         self.mistral_ocr_provider = MistralOCRProvider()
         self.gpt4o_provider = GPT4OProvider()
+        self.gemini_segment_provider = GeminiSegmentProvider()
 
     def get_enhanced_json_ocr_result(self, file: UploadFile, schema: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -30,13 +32,18 @@ class MultiModelOCROrchestrator:
         else:
             image_paths = self._save_uploaded_image(file)
 
+
+        gpt_segmentation_prompt = self.ocr_client.gpt_segmentation_prompt(image_path=image_paths[0])
+        print(gpt_segmentation_prompt)
+        segementation_masks = self.gemini_segment_provider.extract_segmentation_masks(prompt=gpt_segmentation_prompt, image_path=image_paths[0])
+
         with open(image_paths[0], 'rb') as f:
             image_bytes = f.read()
 
         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
 
         mistral_extracted_images = self.mistral_ocr_provider.process_mistral_ocr(image_base64)
-        
+
         # Get the markdown from the results.txt file that Mistral provider writes
         results_path = os.path.join(os.path.dirname(__file__), "results.txt")
         mistral_markdown = ""
