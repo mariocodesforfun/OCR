@@ -5,6 +5,7 @@ import logging
 
 from fastapi import FastAPI, UploadFile, File, Form
 from orchestrator import OCROrchestrator
+from multi_model_orchestrator import MultiModelOCROrchestrator
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,10 +32,10 @@ def ocr_md(file: UploadFile = File(...)):
     return ocr_orchestrator.process_ocr_markdown(file)
 
 
-@app.post("/v1/ocr-json")
+@app.post("/v1/ocr-json-2")
 def ocr_json(file: UploadFile = File(...), schema: str = Form(...)):
+    # gpt 4o only
     try:
-        # Parse the schema from JSON string
         parsed_schema = json.loads(schema)
         ocr_orchestrator = OCROrchestrator()
         return ocr_orchestrator.process_ocr_json(file, parsed_schema)
@@ -42,3 +43,18 @@ def ocr_json(file: UploadFile = File(...), schema: str = Form(...)):
         return {"error": f"Invalid JSON schema: {str(e)}"}
     except Exception as e:
         return {"error": f"OCR processing failed: {str(e)}"}
+
+@app.post("/v1/ocr-json")
+def ocr_json_enhanced(file: UploadFile = File(...), schema: str = Form(...)):
+    # gpt 4o + mistral ocr
+    print("ocr_json_enhanced")
+    try:
+        parsed_schema = json.loads(schema)
+        multi_model_orchestrator = MultiModelOCROrchestrator()
+        result = multi_model_orchestrator.get_enhanced_json_ocr_result(file, parsed_schema)
+        print(result)
+        return result
+    except json.JSONDecodeError as e:
+        return {"error": f"Invalid JSON schema: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Enhanced OCR processing failed: {str(e)}"}
